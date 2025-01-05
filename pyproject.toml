@@ -12,12 +12,13 @@ description = "A datatrees wrapper for creating XML serializers / deserializers.
 readme = "README.md"
 requires-python = ">=3.10"
 classifiers = [
-    "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: GNU Lesser General Public License v2 or later (LGPLv2+)",
-    "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: GNU Lesser General Public License v2 or later (LGPLv2+)",
+  "Operating System :: OS Independent",
 ]
 dependencies = [
-    "datatrees>=0.1.0",
+  "datatrees>=0.1.0",
+  "lxml",
 ]
 
 [project.urls]
@@ -28,4 +29,5 @@ dependencies = [
 dependencies = [
   "pytest>=7.0.0",
   "pytest-cov>=4.0.0",
+  "numpy",
 ] 

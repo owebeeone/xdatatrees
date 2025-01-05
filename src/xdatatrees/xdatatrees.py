@@ -1,6 +1,53 @@
 '''
-Provides annotations over datatrees to create xml deserializer/serializers
-to convert xml->datatree (python objects) and back i.e., datatree->xml.
+Created on 3 Oct 2023
+
+@author: gianni
+
+An XML serializer/deserializer for Python dataclasses (via datatrees).
+
+xdatatrees supports the following features:
+- XML element and attribute name mapping
+- XML namespace support
+- value converters that can convert between XML values and Python/Application values
+- value collectors that can collect multiple values for a field into an Application specific container
+- docstrings
+
+This library extends Python's dataclasses to support XML to Python class mappings.
+
+The library is based on datatrees, which is a wrapper over Python's dataclasses that
+adds support for injection and binding, self_default, post_init chaining, and docstrings.
+
+Here is an example of how to use xdatatrees:
+
+# Create a default config for all xdatatree annotationed classes.
+# This config is used to specify the default name transformation and the default
+# data type of the fields.
+DEFAULT_CONFIG = xfield(ename_transform=CamelSnakeConverter, ftype=Element)
+
+@xdatatree
+class MeshStat:
+    XDATATREE_CONFIG = DEFAULT_CONFIG(ftype=Attribute) # This is the default config for fields.
+    edges_fixed: int = xfield(doc='Number of fixed edges')
+    degenerate_facets: int = xfield(doc='Number of degenerate facets')
+    facets_removed: int = xfield(doc='Number of facets removed')
+    facets_reversed: int = xfield(doc='Number of facets reversed')
+    backwards_edges: int = xfield(doc='Number of backwards edges')
+
+
+@xdatatree
+class Part:
+    XDATATREE_CONFIG = DEFAULT_CONFIG(ftype=Metadata)
+    id: str = xfield(ftype=Attribute, doc='Id of the part')
+    subtype: str = xfield(ftype=Attribute, doc='Subtype of the part')
+    name: str = xfield(ftype=Metadata, doc='Name of the part')
+    matrix: MatrixConverter = xfield(ftype=Metadata, doc='Frame of ref of the object')
+    source_file: str
+    source_object_id: str
+    source_volume_id: str
+    source_offset_x: float
+    source_offset_y: float
+    source_offset_z: float
+    mesh_stat: MeshStat = xfield(ftype=Element, doc='Mesh statistics of the part')
 
 '''
 
