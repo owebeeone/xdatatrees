@@ -324,11 +324,11 @@ class APIResponse:
         ftype=Attribute
     )
     
-    user_id: str = xfield(doc='User identifier')        # becomes userId attribute
-    creation_date: str = xfield(ftype=TextElement, doc='Creation date')  # becomes creationDate element
+    user_id: str = xfield(doc='User identifier')        # becomes UserId attribute
+    creation_date: str = xfield(ftype=TextElement, doc='Creation date')  # becomes creation_date element
 
-# Python field: user_id → XML attribute: userId
-# Python field: creation_date → XML element: creationDate
+# Python field: user_id → XML attribute: UserId
+# Python field: creation_date → XML element: creation_date
 ```
 
 ### 4. Custom Value Collectors
