@@ -66,6 +66,8 @@ import sys
 class TooManyValuesError(ValueError):
     '''Raised when multiple values are provided for a field that only allows one.'''
 
+class TextContentMultipleError(ValueError):
+    '''Raised when a text content spec is defined for a class that already has a text content spec.'''
 
 class UnspecifiedValue:
     def __bool__(self):
@@ -296,6 +298,8 @@ class XmlParserSpec:
     xml_element_specs: Dict[str, XmlFieldSpec] = field(default_factory=dict)
     xml_attribute_specs: Dict[str, XmlFieldSpec] = field(default_factory=dict)
     metadata_specs: Dict[str, XmlFieldSpec] = field(default_factory=dict)
+    xml_text_content_spec: Tuple[str, XmlFieldSpec] = field(default=None)
+    xml_text_element_spec: Dict[str, XmlFieldSpec] = field(default_factory=dict)
 
     def add_element_spec(self, field_spec: XmlFieldSpec):
         self._check_collision_and_add(self.xml_element_specs, field_spec)
@@ -305,6 +309,14 @@ class XmlParserSpec:
 
     def add_metadata_spec(self, metadata_spec: XmlFieldSpec):
         self._check_collision_and_add(self.metadata_specs, metadata_spec)
+        
+    def add_text_content_spec(self, text_content_spec: Tuple[str, XmlFieldSpec]):
+        if self.xml_text_content_spec is not None:
+            raise TextContentMultipleError('Only one text content spec is allowed per class.')
+        self.xml_text_content_spec = text_content_spec
+        
+    def add_text_element_spec(self, text_element_spec: Tuple[str, XmlFieldSpec]):
+        self._check_collision_and_add(self.xml_text_element_spec, text_element_spec)
 
     def _check_collision_and_add(self, specs, field_spec: XmlFieldSpec):
         xml_name = field_spec.get_xml_name()
@@ -328,6 +340,11 @@ class XmlParserSpec:
     def deserialize_subelement(self, xml_element: etree.ElementBase, options: XmlParserOptions):
         '''Parse the xml element and return a dictionary of values.'''
         result = XmlObjectBuilder(xml_element)
+        
+        if self.xml_text_content_spec is not None:
+            text_content_spec = self.xml_text_content_spec
+            text_content = xml_element.text if xml_element.text else ''
+            result.add_value(text_content_spec, text_content)
 
         for attr_name, attr_value in xml_element.items():
             field_spec = self.xml_attribute_specs.get(attr_name, None)
@@ -344,8 +361,10 @@ class XmlParserSpec:
             else:
                 result.add_value(field_spec, attr_value)
 
-        for elem in xml_element.getchildren():
+        for elem in xml_element:
             field_spec = self.xml_element_specs.get(elem.tag, None)
+            if field_spec is None:
+                field_spec = self.xml_text_element_spec.get(elem.tag, None)
 
             if field_spec is None:
                 elem_qname = etree.QName(elem.tag)
@@ -379,15 +398,41 @@ class XmlParserSpec:
                     # An eleement that is not a metadata element and it's unknown.
                     result.add_unknown_element(elem)
             else:
-                # A known element, recursively run the parser.
-                contained_type = field_spec.collector_type.CONTAINED_TYPE
-                parser_spec = getattr(contained_type, XDATATREE_PARSER_SPEC, None)
-                value, sub_result = parser_spec.deserialize(
-                    elem, field_spec.collector_type.CONTAINED_TYPE, options=options
-                )
+                # A known element, check if it's TextElement or needs recursive parsing
+                if isinstance(field_spec.ftype, _TextElement):
+                    # TextElement: extract text content and convert to appropriate type
+                    contained_type = field_spec.collector_type.CONTAINED_TYPE
+                    text_content = elem.text if elem.text else ''
+                    
+                    # Convert text to the appropriate Python type
+                    if contained_type is str:
+                        value = text_content
+                    elif contained_type is int:
+                        value = int(text_content) if text_content else 0
+                    elif contained_type is float:
+                        value = float(text_content) if text_content else 0.0
+                    elif contained_type is bool:
+                        value = text_content.lower() in ('true', '1', 'yes', 'on', 't', 'y')
+                    else:
+                        # For other types, try to construct from string
+                        try:
+                            value = contained_type(text_content)
+                        except (ValueError, TypeError):
+                            value = text_content  # Fall back to string
+                    
+                    result.add_value(field_spec, value)
+                else:
+                    # Regular element, recursively run the parser.
+                    contained_type = field_spec.collector_type.CONTAINED_TYPE
+                    parser_spec = getattr(contained_type, XDATATREE_PARSER_SPEC, None)
+                    if parser_spec is None:
+                        raise ValueError(f'Class {contained_type.__name__} is not a xdatatree class and cannot be used with ftype=Element. Use ftype=TextElement for simple types.')
+                    value, sub_result = parser_spec.deserialize(
+                        elem, field_spec.collector_type.CONTAINED_TYPE, options=options
+                    )
 
-                result.add_value(field_spec, value)
-                result.merge_status(sub_result)
+                    result.add_value(field_spec, value)
+                    result.merge_status(sub_result)
 
         return result
 
@@ -680,6 +725,8 @@ class _XFieldParams:
 
     def is_default_specified(self):
         '''Return true if any of the ways to specify a default value are specified.'''
+        if self.other_params is UNSPECIFIED:
+            return False
         return not (
             self.other_params.get('default', UNSPECIFIED) is UNSPECIFIED
             and self.other_params.get('default_factory', UNSPECIFIED) is UNSPECIFIED
@@ -815,6 +862,69 @@ class _Element(XmlDataType):
 Element = _Element()
 
 
+class _TextElement(XmlDataType):
+    '''The type for XML elements that contain only text content (creates child elements)'''
+
+    def xml_field_name_of(
+        self,
+        container: Type,
+        field_types: List[Type],
+        python_field_name: str,
+        field_config: _XFieldParams,
+    ):
+        # Use the same naming logic as Element
+        if field_config.ename not in UNSPECIFIED_OR_NONE:
+            return field_config.ename, field_config.exmlns
+
+        if field_config.ename_transform in UNSPECIFIED_OR_NONE:
+            return python_field_name, field_config.exmlns
+
+        return _select_name_from_spec(
+            self, field_config.ename_transform, field_types[0], python_field_name
+        ), field_config.exmlns
+
+    @classmethod
+    def apply_collector_type(clz, parser_spec: XmlParserSpec, xml_field_spec: XmlFieldSpec):
+        parser_spec.add_text_element_spec(xml_field_spec)
+
+    def serialize(self, xml_node: etree.ElementBase, name: str, value: Any):
+        '''Create child elements with text content.'''
+        if isinstance(value, list) or inspect.isgenerator(value):
+            for item in value:
+                child = etree.SubElement(xml_node, name)
+                child.text = str(item) if item is not None else None
+        else:
+            if value is None:
+                return
+            child = etree.SubElement(xml_node, name)
+            child.text = str(value)
+
+TextElement = _TextElement()
+
+
+class _TextContent(XmlDataType):
+    '''The type for capturning the text of an element - only one or none of these is allowed per class.'''
+
+    def xml_field_name_of(
+        self,
+        container: Type,
+        field_types: List[Type],
+        python_field_name: str,
+        field_config: _XFieldParams,
+    ):
+        return python_field_name, None
+
+    @classmethod
+    def apply_collector_type(clz, parser_spec: XmlParserSpec, xml_field_spec: XmlFieldSpec):
+        parser_spec.add_text_content_spec(xml_field_spec)
+
+    def serialize(self, xml_node: etree.ElementBase, name: str, value: Any):
+        '''Create child elements with text content.'''
+        xml_node.text = str(value)
+
+TextContent = _TextContent()
+
+
 @dataclass
 class _Metadata(XmlDataType):
     '''The type for metadata elements containing "name" and "value" attributes.'''
@@ -859,12 +969,20 @@ def _serialize(xml_node: etree.ElementBase, xdatatree_object: Any):
     if xdatatree_object is None:
         return
 
+    if not hasattr(xdatatree_object, 'XDATATREE_PARSER_SPEC'):
+        raise ValueError(f'xdatatree_object must be an instance of XDatatreeObject, got {type(xdatatree_object).__name__}. Use ftype=TextElement for simple types.')
+
     parser_spec = xdatatree_object.XDATATREE_PARSER_SPEC
+        
+    if parser_spec.xml_text_content_spec is not None:
+        field_name = parser_spec.xml_text_content_spec.field_name 
+        xml_node.text = str(getattr(xdatatree_object, field_name, ""))
 
     all_values = chain(
         parser_spec.xml_attribute_specs.items(),
         parser_spec.metadata_specs.items(),
         parser_spec.xml_element_specs.items(),
+        parser_spec.xml_text_element_spec.items(),
     )
 
     for xml_name, field_spec in all_values:
@@ -1147,7 +1265,8 @@ def _process_field(
 
 
 def _process_xdatatree(
-    clz, init, repr, eq, order, unsafe_hash, frozen, match_args, kw_only, slots, chain_post_init
+    clz, init, repr, eq, order, unsafe_hash, frozen, match_args, kw_only, 
+    slots, chain_post_init, weakref_slot, provide_override_field, default_if_missing
 ):
     # Get the default config for the fields in this class.
     default_config = getattr(clz, XDATATREE_CONFIG_FIELD_NAME, DEFAULT_XFIELD_PARAMS)
@@ -1176,7 +1295,7 @@ def _process_xdatatree(
     return datatree(
         clz,
         init=init,
-        repr=repr,
+        repr_=repr,
         eq=eq,
         order=order,
         unsafe_hash=unsafe_hash,
@@ -1184,7 +1303,10 @@ def _process_xdatatree(
         match_args=match_args,
         kw_only=kw_only,
         slots=slots,
+        weakref_slot=weakref_slot,
         chain_post_init=chain_post_init,
+        provide_override_field=provide_override_field,
+        default_if_missing=default_if_missing,
     )
 
 
@@ -1202,6 +1324,9 @@ def xdatatree(
     kw_only=False,
     slots=False,
     chain_post_init=False,
+    weakref_slot=False,
+    provide_override_field=False,
+    default_if_missing=MISSING,
 ):
     '''Python decorator similar to datatrees.datatree providing parameter injection,
     injection, binding and overrides for parameters deeper inside a tree of objects.
@@ -1220,6 +1345,9 @@ def xdatatree(
             kw_only,
             slots,
             chain_post_init,
+            weakref_slot,
+            provide_override_field,
+            default_if_missing,
         )
 
     # See if we're being called as @xdatatree or @xdatatree().

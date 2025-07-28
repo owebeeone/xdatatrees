@@ -4,6 +4,8 @@ from xdatatrees import (
     Attribute,
     Metadata,
     Element,
+    TextContent,
+    TextElement,
     CamelSnakeConverter,
     SnakeCamelConverter,
     deserialize,
@@ -11,6 +13,7 @@ from xdatatrees import (
     MetadataNameValue,
     ValueCollector,
     XmlParserOptions,
+    TextContentMultipleError,
 )
 
 
@@ -606,7 +609,69 @@ XML_DATA3 = '''\
 DESERIALIZE_OPTIONS = XmlParserOptions(assert_unused_elements=True, assert_unused_attributes=True)
 
 
+TEXT_CONTENT_XML = '''\
+<text_content_test attr="I'm an attribute">Hello, world!</text_content_test>
+'''
+
+@xdatatree
+class TextContentTest:
+    XDATATREE_CONFIG = DEFAULT_CONFIG
+    attr: str = xfield(ftype=Attribute, doc='Attribute')
+    text: str = xfield(ftype=TextContent, doc='Text content')
+
+TEXT_ELEMENT_XML = '''\
+<text_element_test>
+    <title>Hello, world!</title>
+    <point>1 2 3</point>
+    <point>4 5 6</point>
+    <point>7 8 9</point>
+</text_element_test>
+'''
+
+@xdatatree
+class TextElementTest:
+    XDATATREE_CONFIG = DEFAULT_CONFIG
+    point: List[str] = xfield(ftype=TextElement, doc='Multiple points')
+    title: str = xfield(ftype=TextElement, doc='Title')
+    
+
 class ExtrudeTest(TestCase):
+    
+    def testTextContentDefn(self):
+        try:
+            @xdatatree
+            class TextContentTestDupe:
+                XDATATREE_CONFIG = DEFAULT_CONFIG
+                attr: str = xfield(ftype=Attribute, doc='Attribute')
+                text1: str = xfield(ftype=TextContent, doc='Text content')
+                text2: str = xfield(ftype=TextContent, doc='Text content')
+        except TextContentMultipleError as e:
+            self.assertEqual(str(e), 'Only one text content spec is allowed per class.')
+        else:
+            self.fail('Expected ValueError')
+    
+    def testTextContent(self):
+        xml_tree = etree.fromstring(TEXT_CONTENT_XML.encode('utf-8'))
+        text_content_test, status = deserialize(xml_tree, TextContentTest)
+        self.assertEqual(text_content_test.text, 'Hello, world!')
+        self.assertEqual(text_content_test.attr, "I'm an attribute")
+        
+        serialized_xml = serialize(text_content_test, 'text_content_test')
+        self.assertEqual(serialized_xml.text, 'Hello, world!')
+        self.assertEqual(serialized_xml.get('attr'), "I'm an attribute")
+    
+    def testTextElement(self):
+        xml_tree = etree.fromstring(TEXT_ELEMENT_XML.encode('utf-8'))
+        text_element_test, status = deserialize(xml_tree, TextElementTest)
+        self.assertEqual(text_element_test.title, 'Hello, world!')
+        self.assertEqual(text_element_test.point, ['1 2 3', '4 5 6', '7 8 9'])
+        
+        serialized_xml = serialize(text_element_test, 'text_element_test')
+        self.assertEqual(serialized_xml.find('title').text, 'Hello, world!')
+        self.assertEqual(serialized_xml.findall('point')[0].text, '1 2 3')
+        self.assertEqual(serialized_xml.findall('point')[1].text, '4 5 6')
+        self.assertEqual(serialized_xml.findall('point')[2].text, '7 8 9')
+        
     def getXml(self):
         return etree.fromstring(XML_DATA.encode('utf-8'))
 
