@@ -18,7 +18,14 @@ classifiers = [
 ]
 dependencies = [
   "datatrees>=0.1.0",
-  "lxml",
+  "lxml>=4.6.0",
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest>=7.0.0",
+  "pytest-cov>=4.0.0",
+  "numpy>=1.20.0",
 ]
 
 [project.urls]
@@ -26,8 +33,13 @@ dependencies = [
 "Bug Tracker" = "https://github.com/owebeeone/xdatatrees/issues"
 
 [tool.hatch.envs.test]
-dependencies = [
-  "pytest>=7.0.0",
-  "pytest-cov>=4.0.0",
-  "numpy",
-] 
+features = [
+  "test",
+]
+
+[tool.hatch.envs.test.scripts]
+test = "pytest {args:tests}"
+test-cov = "pytest --cov-report=term-missing --cov-config=pyproject.toml --cov=xdatatrees --cov=tests {args:tests}"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/xdatatrees"]
