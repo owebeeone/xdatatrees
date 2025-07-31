@@ -19,7 +19,7 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "datatrees>=0.1.0",
+    "datatrees>=0.3.6",
     "lxml>=4.6.0",
 ]
 

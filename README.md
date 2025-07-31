@@ -10,6 +10,12 @@ XDataTrees extends Python's dataclasses through datatrees to provide a clean, de
 pip install xdatatrees
 ```
 
+## Documentation
+
+This README provides a quick-start guide with basic usage examples.
+
+For a comprehensive guide covering advanced topics, best practices, and detailed explanations of all features, please refer to the **[Full Documentation](DOCUMENTATION.md)**.
+
 ## Core Features
 
 - **Declarative XML Mapping**: Map Python classes to XML using simple annotations
