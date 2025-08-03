@@ -1184,7 +1184,7 @@ def _get_collector_type(annotation: Any) -> Tuple[type, bool]:
             @dataclass
             class TupleCollector(ValueCollector):
                 CONTAINED_TYPE = contained_types[0]
-                value: List[contained_types[0]] = field(default_factory=list)
+                value: List[contained_types[0]] = field(default_factory=list) # type: ignore
 
                 def append(self, item: CONTAINED_TYPE):
                     # Perform conversion.
@@ -1201,6 +1201,9 @@ def _get_collector_type(annotation: Any) -> Tuple[type, bool]:
                     return value
 
             return TupleCollector
+        
+        else:
+            raise ValueError(f"Field {annotation=} is not a valid XML container type.")
 
     else:
 
@@ -1238,6 +1241,7 @@ def _diagnostic_name_of_ftype(ftype: XmlDataType):
 
 
 def _process_field(
+    anno_getter: AnnotationsAccessor,
     clz: type,
     field_name: str,
     field_annotation: Any,
@@ -1250,6 +1254,17 @@ def _process_field(
     """
 
     if not isinstance(field_annotation, type):
+        if isinstance(field_annotation, str):
+            # It's a forward reference that wasn't resolved, try to resolve it.
+            try:
+                result = anno_getter.resolve_forward_reference(field_annotation)
+            except Exception as e:
+                raise ValueError(
+                    f"Field {field_name} has an invalid annotation: {field_annotation!r} : {e}") \
+                        from e
+            
+            field_annotation = result
+            
         origin = typing.get_origin(field_annotation)
         if origin is None:
             raise ValueError(f"Field {field_name} has an invalid annotation: {field_annotation!r}")
@@ -1275,6 +1290,9 @@ def _process_field(
 
     if field_config.builder in UNSPECIFIED_OR_NONE:
         collector_type = _get_collector_type(field_annotation)
+        if not isinstance(collector_type, type):
+            collector_type = _get_collector_type(field_annotation)
+            raise ValueError(f"Field {field_name} has an invalid annotation: {field_annotation!r}")
     else:
         collector_type = field_config.builder
 
@@ -1331,7 +1349,7 @@ def _process_xdatatree(
                 f'"{_diagnostic_name_of_ftype(field_name)}". No specification allowed.'
             )
             continue
-        _process_field(clz, field_name, field_annotation, default_config, xml_parser_spec)
+        _process_field(anno_getter, clz, field_name, field_annotation, default_config, xml_parser_spec)
 
     # Create fields for storing the unidentified xml elements and attributes.
     setattr(clz, XDATATREE_UNUSED_XML_ATTRIBUTES, None)

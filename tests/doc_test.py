@@ -7,12 +7,11 @@ Run them with:
 
 These tests require the third‑party **lxml** package because XDataTrees' recommended XML backend is *lxml.etree* for full namespace support.
 """
-from __future__ import annotations
 
 # ---------------------------------------------------------------------------
 # Standard + third‑party deps
 # ---------------------------------------------------------------------------
-from typing import List
+from typing import List, Optional, Tuple
 
 import numpy as np   # Used by the matrix / mesh examples
 import pytest        # Test runner
@@ -74,14 +73,14 @@ def test_person_roundtrip():
     assert ET.tostring(xml_out, encoding="unicode") == PERSON_XML
     
 def test_address_text_content_roundtrip():
-    
-    @xdatatree  
-    class Address:  
+
+    @xdatatree
+    class Address:
         label: str = xfield(default='work', ftype=Attribute, doc='address label')
         address: str = xfield(ftype=TextContent)
 
-    @xdatatree  
-    class Person:  
+    @xdatatree
+    class Person:
         name: str = xfield(ftype=Attribute)  
         age: int = xfield(ftype=Attribute)
         address: Address = xfield(ftype=Element)
